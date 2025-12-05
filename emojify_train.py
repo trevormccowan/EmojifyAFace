@@ -14,13 +14,13 @@ import matplotlib.pyplot as plt
 
 
 ###############################################################################
-# Configuration
+# Configuration - UPDATED
 ###############################################################################
 
-DATA_DIR = "data/faces"     # change if your images live somewhere else
-BATCH_SIZE = 64
-NUM_EPOCHS = 15
-LEARNING_RATE = 1e-3
+DATA_DIR = "data/faces"
+BATCH_SIZE = 16              # Reduced for small dataset
+NUM_EPOCHS = 25              # Increased
+LEARNING_RATE = 3e-4         # Lowered from 1e-3
 VAL_SPLIT = 0.2
 RANDOM_SEED = 42
 
@@ -42,65 +42,93 @@ def set_seed(seed: int = 42):
 
 
 ###############################################################################
-# CNN Model
+# IMPROVED CNN Model - No BatchNorm, Deeper, RGB input
 ###############################################################################
 
 class EmojifyCNN(nn.Module):
     def __init__(self, num_classes=3):
         super().__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(1, 32, 3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(64, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
+        
+        # Block 1: 3 -> 32
+        self.block1 = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2)
+        )
+        
+        # Block 2: 32 -> 64
+        self.block2 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2)
+        )
+        
+        # Block 3: 64 -> 128
+        self.block3 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2)
+        )
+        
+        # Block 4: 128 -> 256
+        self.block4 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2)
         )
 
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(128 * 16 * 16, 256),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_classes),
-        )
+        # Adaptive pooling to handle any input size
+        self.avgpool = nn.AdaptiveAvgPool2d((4, 4))
+
+        # Classifier
+        self.fc1 = nn.Linear(256 * 4 * 4, 256)
+        self.dropout = nn.Dropout(0.5)
+        self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x):
-        return self.classifier(self.features(x))
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = self.block4(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
 
 
 ###############################################################################
-# Data Loading
+# Data Loading - IMPROVED TRANSFORMS
 ###############################################################################
 
 def get_dataloaders(data_dir, batch_size, val_split):
-    # Base transforms (used by both)
+    # TRAIN: Strong augmentation, RGB, larger size
     train_transform = transforms.Compose([
-        transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((128, 128)),
+        transforms.Resize((256, 256)),
+        transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(10),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                           std=[0.229, 0.224, 0.225]),
     ])
 
+    # VAL: No augmentation, RGB, fixed size
     val_transform = transforms.Compose([
-        transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((128, 128)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                           std=[0.229, 0.224, 0.225]),
     ])
 
-    # We first create a dataset without transform to generate indices
     base_dataset = datasets.ImageFolder(root=data_dir)
     print("Class-to-index mapping:", base_dataset.class_to_idx)
 
@@ -108,7 +136,6 @@ def get_dataloaders(data_dir, batch_size, val_split):
     val_size = int(val_split * dataset_size)
     train_size = dataset_size - val_size
 
-    # Deterministic split
     generator = torch.Generator().manual_seed(RANDOM_SEED)
     train_dataset, val_dataset = random_split(
         base_dataset,
@@ -116,8 +143,6 @@ def get_dataloaders(data_dir, batch_size, val_split):
         generator=generator
     )
 
-    # Now re-wrap subsets with transforms
-    # Each Subset has .dataset and .indices; we create new ImageFolders with transforms
     full_train_dataset = datasets.ImageFolder(root=data_dir, transform=train_transform)
     full_val_dataset = datasets.ImageFolder(root=data_dir, transform=val_transform)
 
@@ -166,8 +191,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device):
         correct += (preds == labels).sum().item()
         total += labels.size(0)
 
-        # New: progress print
-        if (batch_idx + 1) % 50 == 0:
+        if (batch_idx + 1) % 10 == 0:
             print(f"  [batch {batch_idx+1}] loss: {epoch_loss/total:.4f}")
 
     return epoch_loss / total, correct / total
@@ -242,14 +266,25 @@ def main():
 
     train_loader, val_loader, class_names = get_dataloaders(DATA_DIR, BATCH_SIZE, VAL_SPLIT)
     print("Classes detected:", class_names)
+    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
     model = EmojifyCNN(num_classes=len(class_names)).to(DEVICE)
+    
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params:,}")
 
-    # class order is ['happy', 'neutral', 'sad']
+    # Adjusted class weights
     class_weights = torch.tensor([0.9, 1.1, 1.2], dtype=torch.float32).to(DEVICE)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    # Lower LR + weight decay
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+    
+    # Learning rate scheduler
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=3
+    )
 
     best_f1 = 0
     best_model_path = "best_emojify_cnn.pth"
@@ -262,13 +297,14 @@ def main():
         print(f"Train loss: {train_loss:.4f}, Train acc: {train_acc:.4f}")
         print(f"Val loss: {val_metrics['loss']:.4f}, Val acc: {val_metrics['accuracy']:.4f}, F1: {val_metrics['f1_macro']:.4f}")
 
-        # 🔹 save best model
+        # Update LR based on validation F1
+        scheduler.step(val_metrics['f1_macro'])
+
         if val_metrics["f1_macro"] > best_f1:
             best_f1 = val_metrics["f1_macro"]
             torch.save(model.state_dict(), best_model_path)
-            print(f"Saved best model → {best_model_path}")
+            print(f"✓ Saved best model → {best_model_path} (F1: {best_f1:.4f})")
 
-        # 🔹 record metrics for plotting
         train_acc_hist.append(train_acc)
         val_acc_hist.append(val_metrics["accuracy"])
         val_f1_hist.append(val_metrics["f1_macro"])
@@ -276,35 +312,37 @@ def main():
         val_loss_hist.append(val_metrics["loss"])
 
     # Plot accuracy
-    plt.figure()
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 3, 1)
     plt.plot(train_acc_hist, label="Train acc")
     plt.plot(val_acc_hist, label="Val acc")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.legend()
     plt.grid(True)
-    plt.show()
 
     # Plot loss
-    plt.figure()
+    plt.subplot(1, 3, 2)
     plt.plot(train_loss_hist, label="Train loss")
     plt.plot(val_loss_hist, label="Val loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.legend()
     plt.grid(True)
-    plt.show()
 
     # Plot F1
-    plt.figure()
+    plt.subplot(1, 3, 3)
     plt.plot(val_f1_hist, label="Val F1")
     plt.xlabel("Epoch")
     plt.ylabel("F1 (macro)")
     plt.legend()
     plt.grid(True)
+    
+    plt.tight_layout()
     plt.show()
 
-    print("\nTraining complete!")
+    print("\n✓ Training complete!")
+    print(f"Best validation F1: {best_f1:.4f}")
 
 
 
