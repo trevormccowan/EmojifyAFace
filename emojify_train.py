@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 DATA_DIR = "data/faces"     # change if your images live somewhere else
 BATCH_SIZE = 64
-NUM_EPOCHS = 12
+NUM_EPOCHS = 15
 LEARNING_RATE = 1e-3
 VAL_SPLIT = 0.2
 RANDOM_SEED = 42
@@ -215,7 +215,7 @@ def main():
     model = EmojifyCNN(num_classes=len(class_names)).to(DEVICE)
 
     # class order is ['happy', 'neutral', 'sad']
-    class_weights = torch.tensor([1.0, 1.0, 1.5], dtype=torch.float32).to(DEVICE)
+    class_weights = torch.tensor([1.0, 2.0 , 1.0], dtype=torch.float32).to(DEVICE)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
