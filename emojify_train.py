@@ -311,39 +311,45 @@ def main():
         train_loss_hist.append(train_loss)
         val_loss_hist.append(val_metrics["loss"])
 
-    # Plot accuracy
-    plt.figure(figsize=(10, 4))
-    plt.subplot(1, 3, 1)
+      # Save training plots instead of showing them
+    print("\nSaving training plots...")
+
+    # Accuracy plot
+    plt.figure()
     plt.plot(train_acc_hist, label="Train acc")
     plt.plot(val_acc_hist, label="Val acc")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
+    plt.title("Training vs Validation Accuracy")
     plt.legend()
     plt.grid(True)
+    plt.savefig("accuracy_plot.png")
+    plt.close()
 
-    # Plot loss
-    plt.subplot(1, 3, 2)
+    # Loss plot
+    plt.figure()
     plt.plot(train_loss_hist, label="Train loss")
     plt.plot(val_loss_hist, label="Val loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
+    plt.title("Training vs Validation Loss")
     plt.legend()
     plt.grid(True)
+    plt.savefig("loss_plot.png")
+    plt.close()
 
-    # Plot F1
-    plt.subplot(1, 3, 3)
-    plt.plot(val_f1_hist, label="Val F1")
+    # F1 plot
+    plt.figure()
+    plt.plot(val_f1_hist, label="Val F1 (macro)")
     plt.xlabel("Epoch")
-    plt.ylabel("F1 (macro)")
+    plt.ylabel("F1 Score")
+    plt.title("Validation F1 Curve")
     plt.legend()
     plt.grid(True)
-    
-    plt.tight_layout()
-    plt.show()
+    plt.savefig("f1_plot.png")
+    plt.close()
 
-    print("\n✓ Training complete!")
-    print(f"Best validation F1: {best_f1:.4f}")
-
+    print("✓ Plots saved: accuracy_plot.png, loss_plot.png, f1_plot.png")
 
 
 if __name__ == "__main__":
